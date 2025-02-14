@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 import asyncio
+import os
 import re
+import sys
 from collections import defaultdict
+
+sys.path.append(os.path.abspath(os.path.dirname(__file__) + '/../'))
+from iocs.linkam import LinkamIOC
 
 from caproto import (ChannelChar, ChannelData, ChannelDouble, ChannelEnum,
                      ChannelInteger, ChannelString, ChannelType)
@@ -39,6 +44,8 @@ class ReallyDefaultDict(defaultdict):
             return False
         if "XF:11BMB-ES{Det:PIL2M}" in key:
             return False
+        if "XF:11BM-ES:{LINKAM}:" in key:
+            return True  # Let Linkam PVs be handled by fabricate_channel
         return True
 
     def __missing__(self, key):
@@ -85,6 +92,8 @@ class CMS_IOC(PVGroup):
         super().__init__(prefix="", *args, **kwargs)
         # Overwrite the pvdb with the blackhole, while keeping the explicit pv properties
         self.old_pvdb = self.pvdb.copy()
+        # Instantiate our simulated Linkam IOC:
+        self.linkam_ioc = LinkamIOC(prefix="XF:11BM-ES:{LINKAM}:", name="LinkamSim", macros={"LINKAM": "LINKAM"})
         print(self.old_pvdb)
         self.pvdb = ReallyDefaultDict(self.fabricate_channel)
 
@@ -93,6 +102,22 @@ class CMS_IOC(PVGroup):
         # If the channel already exists from initialization, return it
         if key in self.old_pvdb:
             return self.old_pvdb[key]
+        # Handle Linkam PVs
+        if "XF:11BM-ES:{LINKAM}:" in key:
+            # Temperature control using our simulated Linkam IOC
+            if key.endswith(":TEMP"):
+                return ChannelDouble(value=self.linkam_ioc.temperature_current.value)
+            if ":SETPOINT:SET" in key:
+                return ChannelDouble(value=self.linkam_ioc.temperature_setpoint.value)
+            if ":RAMPRATE:SET" in key:
+                return ChannelDouble(value=self.linkam_ioc.temperature_rate.value)
+            if ":STATUS" in key:
+                return ChannelInteger(value=self.linkam_ioc.status.value)
+            if ":STARTHEAT" in key:
+                return ChannelInteger(value=self.linkam_ioc.heater.value)
+            # Default to 0 for unhandled Linkam PVs
+            return ChannelDouble(value=0.0)
+            
         # Otherwise, fabricate new channels
         if 'PluginType' in key:
             for pattern, val in PLUGIN_TYPE_PVS:
