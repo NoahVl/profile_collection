@@ -42,8 +42,6 @@ class ReallyDefaultDict(defaultdict):
             return False
         if "XF:11BMB-ES{Det:PIL2M}" in key:
             return False
-        if "XF:11BM-ES:{LINKAM}:" in key:
-            return False  # Let LinkamIOC handle these PVs
         return True
 
     def __missing__(self, key):
@@ -55,8 +53,6 @@ class ReallyDefaultDict(defaultdict):
             return None
         if "XF:11BMB-ES{Det:PIL2M}" in key:
             return None
-        if "XF:11BM-ES:{LINKAM}:" in key or "XF:11BM-ES:LINKAM:" in key:
-            return None  # Let LinkamIOC handle these PVs
         if (key.endswith('-SP') or key.endswith('-I') or
                 key.endswith('-RB') or key.endswith('-Cmd')):
             key, *_ = key.rpartition('-')
@@ -87,20 +83,13 @@ class CMS_IOC(PVGroup):
     shutter = SubGroup(Shutter, prefix="XF:11BM-ES")
     #motor = SubGroup(FakeMotor, prefix="XF:11BMB-ES{{Chm:Smpl-Ax:X}}Mtr")
 
-    linkam = SubGroup(LinkamIOC, prefix="XF:11BM-ES:LINKAM:", macros={})
+    linkam = SubGroup(LinkamIOC, prefix="XF:11BM-ES:LINKAM:")
 
     def __init__(self, *args, **kwargs):
         super().__init__(prefix="", *args, **kwargs)
         # Initialize the LinkamIOC first
-        self.linkam.pvdb.update({
-            k.replace('LINKAM:', '{LINKAM}:'): v 
-            for k, v in self.linkam.pvdb.items()
-        })
-        # Then create the blackhole pvdb
         self.old_pvdb = self.pvdb.copy()
         self.pvdb = ReallyDefaultDict(self.fabricate_channel)
-        # Add Linkam PVs to the main pvdb
-        self.pvdb.update(self.linkam.pvdb)
 
     async def startup(self):
         print("[CMS_IOC] Calling LinkamIOC.startup()")

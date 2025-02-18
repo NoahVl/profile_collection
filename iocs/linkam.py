@@ -25,14 +25,21 @@ class LinkamIOC(PVGroup):
     heater = pvproperty(value=0, name="STARTHEAT", doc="Heater on/off")
 
     def __init__(self, *args, **kwargs):
-        if 'macros' not in kwargs:
-            kwargs['macros'] = {}
         super().__init__(*args, **kwargs)
         self._current_temp = 25.0
         self._target_temp = 25.0
         self._ramp_rate = 10.0
         self._heating = False
+        
+        # Create aliases for the formatted PV names
+        formatted_pvs = {}
+        for k, v in list(self.pvdb.items()):
+            formatted_key = k.replace('LINKAM:', '{LINKAM}:')
+            formatted_pvs[formatted_key] = v
+        self.pvdb.update(formatted_pvs)
+        
         print(f"[LinkamIOC] Initialized with prefix: {self.prefix}")
+        print(f"[LinkamIOC] PVs registered: {list(self.pvdb.keys())}")
         
     async def device_poller(self):
         """Update temperature based on setpoint and ramp rate"""
