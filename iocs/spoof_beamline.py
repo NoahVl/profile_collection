@@ -87,37 +87,39 @@ class CMS_IOC(PVGroup):
     shutter = SubGroup(Shutter, prefix="XF:11BM-ES")
     #motor = SubGroup(FakeMotor, prefix="XF:11BMB-ES{{Chm:Smpl-Ax:X}}Mtr")
 
+    linkam = SubGroup(LinkamIOC, prefix="XF:11BM-ES:{LINKAM}:", macros={"LINKAM": "LINKAM"})
+
     def __init__(self, *args, **kwargs):
         # Initialize the explicit pv properties
         super().__init__(prefix="", *args, **kwargs)
         # Overwrite the pvdb with the blackhole, while keeping the explicit pv properties
         self.old_pvdb = self.pvdb.copy()
-        # Instantiate our simulated Linkam IOC:
-        self.linkam_ioc = LinkamIOC(prefix="XF:11BM-ES:{LINKAM}:", name="LinkamSim", macros={"LINKAM": "LINKAM"})
         print(self.old_pvdb)
         self.pvdb = ReallyDefaultDict(self.fabricate_channel)
 
+    def startup(self, async_lib):
+        print("[CMS_IOC] Calling LinkamIOC.startup()")
+        import asyncio
+        # Schedule the Linkam startup callback on the current (will-be-created) event loop.
+        asyncio.get_event_loop().create_task(self.linkam.startup(async_lib))
 
     def fabricate_channel(self, key):
+        # First, if the key contains the macro, expand it.
+        if "{LINKAM}" in key:
+            key = key.replace("{LINKAM}", "LINKAM")
+        # Handle all Linkam PVs live:
+        linkam_prefix = "XF:11BM-ES:LINKAM:"
+        if key.startswith(linkam_prefix):
+            # Use the full PV name (with the prefix) for lookup
+            try:
+                return self.linkam.pvdb[key]
+            except KeyError:
+                print(f"[CMS_IOC] Warning: No Linkam PV for key '{key}'")
+                return ChannelDouble(value=0.0)
+
         # If the channel already exists from initialization, return it
         if key in self.old_pvdb:
             return self.old_pvdb[key]
-        # Handle Linkam PVs
-        if "XF:11BM-ES:{LINKAM}:" in key:
-            # Temperature control using our simulated Linkam IOC
-            if key.endswith(":TEMP"):
-                return ChannelDouble(value=self.linkam_ioc.temperature_current.value)
-            if ":SETPOINT:SET" in key:
-                return ChannelDouble(value=self.linkam_ioc.temperature_setpoint.value)
-            if ":RAMPRATE:SET" in key:
-                return ChannelDouble(value=self.linkam_ioc.temperature_rate.value)
-            if ":STATUS" in key:
-                return ChannelInteger(value=self.linkam_ioc.status.value)
-            if ":STARTHEAT" in key:
-                return ChannelInteger(value=self.linkam_ioc.heater.value)
-            # Default to 0 for unhandled Linkam PVs
-            return ChannelDouble(value=0.0)
-            
         # Otherwise, fabricate new channels
         if 'PluginType' in key:
             for pattern, val in PLUGIN_TYPE_PVS:
@@ -162,6 +164,16 @@ class CMS_IOC(PVGroup):
         return ChannelDouble(value=0.0)
 
 
+def run_ioc():
+    _, run_options = ioc_arg_parser(default_prefix='', desc="PV black hole")
+    run_options['interfaces'] = ['127.0.0.1']
+    run_options.pop('module_name', None)
+    ioc = CMS_IOC()
+    # Instead of awaiting startup in its own loop, simply schedule it:
+    ioc.startup(None)
+    # Use the synchronously imported run() (from caproto.server) to start the IOC server.
+    run(ioc.pvdb, **run_options)
+
 def main():
     print('''
 *** WARNING ***
@@ -186,13 +198,8 @@ Press return if you have acknowledged the above, or Ctrl-C to quit.''')
                          PV blackhole started
 
 ''')
-    _, run_options = ioc_arg_parser(
-        default_prefix='',
-        desc="PV black hole")
-    run_options['interfaces'] = ['127.0.0.1']
-    run(CMS_IOC().pvdb,
-        **run_options)
-
+    
+    run_ioc()
 
 if __name__ == '__main__':
     main()
