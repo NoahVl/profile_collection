@@ -36,8 +36,6 @@ PLUGIN_TYPE_PVS = [
 
 class ReallyDefaultDict(defaultdict):
     def __contains__(self, key):
-        #if "{Shutter}" in key or "{Psh_blade2}Pos" in key or "{Psh_blade1}Pos" in key:
-        #    return False
         if "XF:11BMB-ES{Chm:Smpl-Ax:" in key:
             return False
         if "XF:11BMB-ES{BS-Ax:" in key:
@@ -45,7 +43,7 @@ class ReallyDefaultDict(defaultdict):
         if "XF:11BMB-ES{Det:PIL2M}" in key:
             return False
         if "XF:11BM-ES:{LINKAM}:" in key:
-            return True  # Let Linkam PVs be handled by fabricate_channel
+            return False  # Let LinkamIOC handle these PVs
         return True
 
     def __missing__(self, key):
@@ -57,6 +55,8 @@ class ReallyDefaultDict(defaultdict):
             return None
         if "XF:11BMB-ES{Det:PIL2M}" in key:
             return None
+        if "XF:11BM-ES:{LINKAM}:" in key or "XF:11BM-ES:LINKAM:" in key:
+            return None  # Let LinkamIOC handle these PVs
         if (key.endswith('-SP') or key.endswith('-I') or
                 key.endswith('-RB') or key.endswith('-Cmd')):
             key, *_ = key.rpartition('-')
@@ -87,80 +87,27 @@ class CMS_IOC(PVGroup):
     shutter = SubGroup(Shutter, prefix="XF:11BM-ES")
     #motor = SubGroup(FakeMotor, prefix="XF:11BMB-ES{{Chm:Smpl-Ax:X}}Mtr")
 
-    linkam = SubGroup(LinkamIOC, prefix="XF:11BM-ES:{LINKAM}:", macros={"LINKAM": "LINKAM"})
+    linkam = SubGroup(LinkamIOC, prefix="XF:11BM-ES:LINKAM:", macros={})
 
     def __init__(self, *args, **kwargs):
-        # Initialize the explicit pv properties
         super().__init__(prefix="", *args, **kwargs)
-        # Overwrite the pvdb with the blackhole, while keeping the explicit pv properties
+        # Initialize the LinkamIOC first
+        self.linkam.pvdb.update({
+            k.replace('LINKAM:', '{LINKAM}:'): v 
+            for k, v in self.linkam.pvdb.items()
+        })
+        # Then create the blackhole pvdb
         self.old_pvdb = self.pvdb.copy()
-        print(self.old_pvdb)
         self.pvdb = ReallyDefaultDict(self.fabricate_channel)
+        # Add Linkam PVs to the main pvdb
+        self.pvdb.update(self.linkam.pvdb)
 
-    def startup(self, async_lib):
+    async def startup(self):
         print("[CMS_IOC] Calling LinkamIOC.startup()")
-        import asyncio
-        # Schedule the Linkam startup callback on the current (will-be-created) event loop.
-        asyncio.get_event_loop().create_task(self.linkam.startup(async_lib))
+        await self.linkam.startup()
 
     def fabricate_channel(self, key):
-        # First, if the key contains the macro, expand it.
-        if "{LINKAM}" in key:
-            key = key.replace("{LINKAM}", "LINKAM")
-        # Handle all Linkam PVs live:
-        linkam_prefix = "XF:11BM-ES:LINKAM:"
-        if key.startswith(linkam_prefix):
-            # Use the full PV name (with the prefix) for lookup
-            try:
-                return self.linkam.pvdb[key]
-            except KeyError:
-                print(f"[CMS_IOC] Warning: No Linkam PV for key '{key}'")
-                return ChannelDouble(value=0.0)
-
-        # If the channel already exists from initialization, return it
-        if key in self.old_pvdb:
-            return self.old_pvdb[key]
-        # Otherwise, fabricate new channels
-        if 'PluginType' in key:
-            for pattern, val in PLUGIN_TYPE_PVS:
-                if pattern.search(key):
-                    return ChannelString(value=val)
-        elif 'ArrayPort' in key:
-            return ChannelString(value="PIL")
-        elif 'PortName' in key:
-            port_name = key.split(':')[-2]
-            if port_name == "cam1":
-                port_name = "PIL"
-            return ChannelString(value=port_name)
-        elif 'name' in key.lower():
-            return ChannelString(value=key)
-        elif 'EnableCallbacks' in key:
-            return ChannelEnum(value=0, enum_strings=['Disabled', 'Enabled'])
-        elif 'BlockingCallbacks' in key:
-            return ChannelEnum(value=0, enum_strings=['No', 'Yes'])
-        elif 'Auto' in key:
-            return ChannelEnum(value=0, enum_strings=['No', 'Yes'])
-        elif 'ImageMode' in key:
-            return ChannelEnum(value=0, enum_strings=['Single', 'Multiple', 'Continuous'])
-        elif 'WriteMode' in key:
-            return ChannelEnum(value=0, enum_strings=['Single', 'Capture', 'Stream'])
-        elif 'ArraySize' in key:
-            return ChannelData(value=10)
-        elif 'TriggerMode' in key:
-            return ChannelEnum(value=0, enum_strings=['Internal', 'External'])
-        elif 'FileWriteMode' in key:
-            return ChannelEnum(value=0, enum_strings=['Single'])
-        elif 'FilePathExists' in key:
-            return ChannelData(value=1)
-        elif 'WaitForPlugins' in key:
-            return ChannelEnum(value=0, enum_strings=['No', 'Yes'])
-        elif ('file' in key.lower() and 'number' not in key.lower() and
-            'mode' not in key.lower()):
-            return ChannelChar(value='a' * 250)
-        elif ('filenumber' in key.lower()):
-            return ChannelInteger(value=0)
-        elif 'Compression' in key:
-            return ChannelEnum(value=0, enum_strings=['None', 'N-bit', 'szip', 'zlib', 'blosc'])
+        # Simply return a dummy channel.
         return ChannelDouble(value=0.0)
 
 
@@ -168,36 +115,37 @@ def run_ioc():
     _, run_options = ioc_arg_parser(default_prefix='', desc="PV black hole")
     run_options['interfaces'] = ['127.0.0.1']
     run_options.pop('module_name', None)
+
+    # Instantiate the top-level IOC which includes the LinkamIOC as a SubGroup
     ioc = CMS_IOC()
-    # Instead of awaiting startup in its own loop, simply schedule it:
-    ioc.startup(None)
-    # Use the synchronously imported run() (from caproto.server) to start the IOC server.
-    run(ioc.pvdb, **run_options)
+
+    # Create an event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        # Start the IOC and wait for startup to complete
+        startup_task = loop.create_task(ioc.startup())
+        loop.run_until_complete(startup_task)
+        
+        # Run the IOC
+        run(ioc.pvdb, **run_options)
+    except KeyboardInterrupt:
+        print('\nIOC terminated by user')
+    except Exception as e:
+        print(f'\nError running IOC: {e}')
+    finally:
+        loop.close()
 
 def main():
     print('''
 *** WARNING ***
 This script spawns an EPICS IOC which responds to ALL caget, caput, camonitor
-requests.  As this is effectively a PV black hole, it may affect the
+requests. As this is effectively a PV black hole, it may affect the
 performance and functionality of other IOCs on your network.
-
-The script ignores the --interfaces command line argument, always
-binding only to 127.0.0.1, superseding the usual default (0.0.0.0) and any
-user-provided value.
 *** WARNING ***
 
-Press return if you have acknowledged the above, or Ctrl-C to quit.''')
-
-    try:
-        input()
-    except KeyboardInterrupt:
-        print()
-        return
-    print('''
-
-                         PV blackhole started
-
-''')
+Starting IOC...''')
     
     run_ioc()
 

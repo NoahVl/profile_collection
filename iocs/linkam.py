@@ -25,39 +25,51 @@ class LinkamIOC(PVGroup):
     heater = pvproperty(value=0, name="STARTHEAT", doc="Heater on/off")
 
     def __init__(self, *args, **kwargs):
+        if 'macros' not in kwargs:
+            kwargs['macros'] = {}
         super().__init__(*args, **kwargs)
-        if "{LINKAM}" in self.prefix:
-            self.prefix = self.prefix.format(LINKAM="LINKAM")
         self._current_temp = 25.0
         self._target_temp = 25.0
         self._ramp_rate = 10.0
         self._heating = False
+        print(f"[LinkamIOC] Initialized with prefix: {self.prefix}")
         
     async def device_poller(self):
         """Update temperature based on setpoint and ramp rate"""
         print("[LinkamIOC] device_poller started.")
-        try:
-            while True:
+        iteration = 0
+        while True:
+            try:
+                iteration += 1
+                if iteration % 10 == 0:
+                    print(f"[LinkamIOC] Poller iteration {iteration} -> _heating: {self._heating}, "
+                          f"_current_temp: {self._current_temp}, _target_temp: {self._target_temp}")
                 if self._heating:
                     diff = self._target_temp - self._current_temp
                     if abs(diff) > 0.1:
-                        # Calculate the step, and update the temperature.
-                        step = min(abs(diff), self._ramp_rate * 0.1) * (1 if diff > 0 else -1)
+                        # Calculate the step and update temperature
+                        step = min(abs(diff), self._ramp_rate * 0.5) * (1 if diff > 0 else -1)
                         self._current_temp += step
-                        print(f"[LinkamIOC] Heating: _current_temp updated to {self._current_temp:.2f} (target: {self._target_temp}, diff: {diff:.2f})")
+                        if iteration % 10 == 0:
+                            print(f"[LinkamIOC] Heating: _current_temp updated to {self._current_temp:.2f} "
+                                  f"(target: {self._target_temp}, diff: {diff:.2f})")
                         await self.temperature_current.write(self._current_temp)
-                        # Set status to 2 if within 0.5 of setpoint, else 0.
+                        # Set status: 2 if nearly at setpoint; otherwise 0
                         status_val = 2 if abs(diff) < 0.5 else 0
                         await self.status.write(status_val)
-                        print(f"[LinkamIOC] Status set to {status_val}")
+                        if iteration % 10 == 0:
+                            print(f"[LinkamIOC] Status set to {status_val}")
                     else:
-                        print(f"[LinkamIOC] At target temperature (diff: {diff:.2f}).")
+                        if iteration % 10 == 0:
+                            print(f"[LinkamIOC] At target temperature with heater on (diff: {diff:.2f}).")
+                    await asyncio.sleep(0.5)
                 else:
-                    print("[LinkamIOC] Heater is off; no temperature update.")
-                await asyncio.sleep(0.1)
-        except asyncio.CancelledError:
-            print("[LinkamIOC] device_poller cancelled.")
-            raise
+                    if iteration % 10 == 0:
+                        print("[LinkamIOC] Heater is off; skipping temperature update.")
+                    await asyncio.sleep(1.0)
+            except asyncio.CancelledError:
+                print("[LinkamIOC] device_poller cancelled.")
+                raise
 
     @heater.putter
     async def heater(self, instance, value):
@@ -84,9 +96,13 @@ class LinkamIOC(PVGroup):
         """Overridden shutdown that does not cancel the device poller."""
         print("[LinkamIOC] shutdown called; NOT cancelling device_poller.")
 
-    async def startup(self, async_lib):
-        print("[LinkamIOC] Starting device poller via group-level startup callback.")
-        self._device_poller_task = asyncio.create_task(self.device_poller())
+    async def startup(self):
+        print("[LinkamIOC] startup called: scheduling device poller.")
+        try:
+            self._device_poller_task = asyncio.create_task(self.device_poller())
+            await asyncio.sleep(0.1)  # Give poller a chance to start
+        except Exception as e:
+            print(f"[LinkamIOC] Error in startup: {e}")
 
 
 if __name__ == "__main__":
