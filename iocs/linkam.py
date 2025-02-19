@@ -72,13 +72,19 @@ class LinkamIOC(PVGroup):
                         asyncio.set_event_loop(loop)
                         loop.run_until_complete(self.temperature_current.write(self._current_temp))
                         
-                        # Set status: 2 if nearly at setpoint; otherwise 0
-                        status_val = 2 if abs(diff) < 0.5 else 0
+                        # Set status: 2 when heating, 1 when at setpoint
+                        status_val = 1 if abs(diff) < 0.5 else 2
                         loop.run_until_complete(self.status.write(status_val))
                         loop.close()
                         print(f"[LinkamIOC] Status set to {status_val}")
                     else:
                         print(f"[LinkamIOC] At target temperature with heater on (diff: {diff:.2f}).")
+                        # Update status to 1 when stable at target
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(self.status.write(1))
+                        loop.close()
+                        print("[LinkamIOC] Status set to 1 (at setpoint)")
                 else:
                     print("[LinkamIOC] Heater is off; skipping temperature update.")
                 
