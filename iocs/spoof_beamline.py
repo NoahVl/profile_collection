@@ -36,6 +36,8 @@ PLUGIN_TYPE_PVS = [
 
 class ReallyDefaultDict(defaultdict):
     def __contains__(self, key):
+        if "XF:11BM-ES:{LINKAM}" in key:
+            return False
         if "XF:11BMB-ES{Chm:Smpl-Ax:" in key:
             return False
         if "XF:11BMB-ES{BS-Ax:" in key:
@@ -47,6 +49,8 @@ class ReallyDefaultDict(defaultdict):
     def __missing__(self, key):
         #if "{Shutter}" in key or "{Psh_blade2}Pos" in key or "{Psh_blade1}Pos" in key:
         #    return None
+        if "XF:11BM-ES:{LINKAM}" in key:
+            return None
         if "XF:11BMB-ES{Chm:Smpl-Ax:" in key:
             return None
         if "XF:11BMB-ES{BS-Ax:" in key:
@@ -89,11 +93,15 @@ class CMS_IOC(PVGroup):
         super().__init__(prefix="", *args, **kwargs)
         # Initialize the LinkamIOC first
         self.old_pvdb = self.pvdb.copy()
-        self.pvdb = ReallyDefaultDict(self.fabricate_channel)
+        dummy = ReallyDefaultDict(self.fabricate_channel)
+        dummy.update(self.old_pvdb)
+        self.pvdb = dummy
 
     async def startup(self):
-        print("[CMS_IOC] Calling LinkamIOC.startup()")
+        print("[CMS_IOC] Starting up...")
+        print("[CMS_IOC] Initializing LinkamIOC...")
         await self.linkam.startup()
+        print("[CMS_IOC] Startup complete")
 
     def fabricate_channel(self, key):
         # Simply return a dummy channel.
@@ -113,11 +121,14 @@ def run_ioc():
     asyncio.set_event_loop(loop)
     
     try:
-        # Start the IOC and wait for startup to complete
-        startup_task = loop.create_task(ioc.startup())
-        loop.run_until_complete(startup_task)
+        # Start the IOC and properly await startup
+        loop.run_until_complete(ioc.startup())
         
-        # Run the IOC
+        # Start the device poller (now synchronous)
+        ioc.linkam.start_poller()
+        print("[run_ioc] IOC startup complete, running main loop...")
+        
+        # Run the IOC with the initialized pvdb
         run(ioc.pvdb, **run_options)
     except KeyboardInterrupt:
         print('\nIOC terminated by user')
