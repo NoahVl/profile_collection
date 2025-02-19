@@ -26,7 +26,7 @@ class LinkamIOC(PVGroup):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._current_temp = 25.0
+        self._current_temp = 25.0  # Currently not reporting 25 but reporting 0
         self._target_temp = 25.0
         self._ramp_rate = 10.0
         self._heating = False
