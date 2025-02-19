@@ -34,12 +34,15 @@ class LinkamIOC(PVGroup):
         self._poller_thread = None
         self._stop_poller = threading.Event()
         
-        # Create aliases for the formatted PV names
+        # Create aliases for both PV name formats (with and without braces)
         formatted_pvs = {}
         for k, v in list(self.pvdb.items()):
+            # Add version with braces
             formatted_key = k.replace('LINKAM:', '{LINKAM}:')
             formatted_pvs[formatted_key] = v
-        self.pvdb.update(formatted_pvs)
+            # Keep original version without braces
+            formatted_pvs[k] = v
+        self.pvdb = formatted_pvs
         
         print(f"[LinkamIOC] Initialized with prefix: {self.prefix}")
         print(f"[LinkamIOC] PVs registered: {list(self.pvdb.keys())}")

@@ -36,8 +36,11 @@ PLUGIN_TYPE_PVS = [
 
 class ReallyDefaultDict(defaultdict):
     def __contains__(self, key):
-        if "XF:11BM-ES:{LINKAM}" in key:
-            return False
+        # Convert {LINKAM} format to plain format for checking
+        key = key.replace("{LINKAM}", "LINKAM")
+        
+        if "XF:11BM-ES:LINKAM" in key:
+            return True  # Allow Linkam PVs
         if "XF:11BMB-ES{Chm:Smpl-Ax:" in key:
             return False
         if "XF:11BMB-ES{BS-Ax:" in key:
@@ -47,10 +50,12 @@ class ReallyDefaultDict(defaultdict):
         return True
 
     def __missing__(self, key):
-        #if "{Shutter}" in key or "{Psh_blade2}Pos" in key or "{Psh_blade1}Pos" in key:
-        #    return None
-        if "XF:11BM-ES:{LINKAM}" in key:
-            return None
+        # Convert {LINKAM} format to plain format for lookup
+        lookup_key = key.replace("{LINKAM}", "LINKAM")
+        
+        if "XF:11BM-ES:LINKAM" in lookup_key:
+            # Forward to the LinkamIOC's PVs
+            return self.get(lookup_key, None)
         if "XF:11BMB-ES{Chm:Smpl-Ax:" in key:
             return None
         if "XF:11BMB-ES{BS-Ax:" in key:
