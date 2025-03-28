@@ -29,6 +29,18 @@ from ophyd.areadetector.filestore_mixins import FileStoreHDF5IterativeWrite
 from ophyd.areadetector.plugins import HDF5Plugin #,register_plugin,PluginBase
 
 
+def print_area_detector_port_graph(G):
+    print("\nArea Detector Port Graph:")
+    print("------------------------")
+    print("Nodes:")
+    for node in sorted(G.nodes()):
+        print(f"  • {node}")
+    print("\nConnections:")
+    for edge in sorted(G.edges()):
+        print(f"  • {edge[0]} → {edge[1]}")
+    print("------------------------\n")
+
+
 print(f'Loading {__file__}')
 
 # import filestore.api as fs
@@ -505,22 +517,19 @@ if Camera_on==True:
     all_standard_pros = [fs2, fs3, fs4]
 
 
-    # for cam_number, fs in zip([1,2,3,4], [fs1, fs2, fs3, fs4]):
-    # for cam_number, fs in zip([2, 3, 4], [fs2, fs3, fs4]):
-    #     G, port_dict = fs.get_asyn_digraph()
-    #     cam = port_dict["cam{:02}".format(cam_number)]
-    #     for v in port_dict.values():
-    #         try:
-    #             if v.nd_array_port.get() == "CAM":
-    #                 v.nd_array_port.set("cam{:02}".format(cam_number))
-    #         except AttributeError:
-    #             pass
-    #     fs.validate_asyn_ports()
-
-
-
-
-
+    for cam_number, fs in zip([2, 3, 4], all_standard_pros):
+        G, port_dict = fs.get_asyn_digraph()
+        print(fs.cam.port_name.get())
+        print_area_detector_port_graph(G)
+        print(port_dict)
+        cam = port_dict["cam{:02}".format(cam_number)]
+        for v in port_dict.values():
+            try:
+                if v.nd_array_port.get() == "CAM":
+                    v.nd_array_port.set("cam{:02}".format(cam_number))
+            except AttributeError:
+                pass
+        fs.validate_asyn_ports()
 
 # class StandardsimDetectorV33(SingleTriggerV33, ProsilicaDetector):
 ## tiff = Cpt(TIFFPluginWithFileStore,
