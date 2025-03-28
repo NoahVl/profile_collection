@@ -38,7 +38,7 @@ class ReallyDefaultDict(defaultdict):
     def __contains__(self, key):
         # Convert {LINKAM} format to plain format for checking
         key = key.replace("{LINKAM}", "LINKAM")
-        
+
         if "XF:11BM-ES:LINKAM" in key:
             return True  # Allow Linkam PVs
         if "XF:11BMB-ES{Chm:Smpl-Ax:" in key:
@@ -52,7 +52,7 @@ class ReallyDefaultDict(defaultdict):
     def __missing__(self, key):
         # Convert {LINKAM} format to plain format for lookup
         lookup_key = key.replace("{LINKAM}", "LINKAM")
-        
+
         if "XF:11BM-ES:LINKAM" in lookup_key:
             # Forward to the LinkamIOC's PVs
             return self.get(lookup_key, None)
@@ -109,7 +109,54 @@ class CMS_IOC(PVGroup):
         print("[CMS_IOC] Startup complete")
 
     def fabricate_channel(self, key):
-        # Simply return a dummy channel.
+        # If the channel already exists from initialization, return it
+        if key in self.old_pvdb:
+            return self.old_pvdb[key]
+        # Otherwise, fabricate new channels
+        if 'PluginType' in key:
+            for pattern, val in PLUGIN_TYPE_PVS:
+                if pattern.search(key):
+                    return ChannelString(value=val)
+        elif 'ArrayPort' in key:
+            return ChannelString(value="cam1")
+        elif 'PortName' in key:
+            # Extract port name from key format: <prefix><port-name>:PortName
+            # Use regex to find the last component before :PortName
+            match = re.search(r"[^:}_\-]+(?=:PortName)", key)
+            if match:
+                port_name = match.group(0)
+                return ChannelString(value=port_name)
+            # Fallback if regex doesn't match
+            return ChannelString(value=key)
+        elif 'name' in key.lower():
+            return ChannelString(value=key)
+        elif 'EnableCallbacks' in key:
+            return ChannelEnum(value=0, enum_strings=['Disabled', 'Enabled'])
+        elif 'BlockingCallbacks' in key:
+            return ChannelEnum(value=0, enum_strings=['No', 'Yes'])
+        elif 'Auto' in key:
+            return ChannelEnum(value=0, enum_strings=['No', 'Yes'])
+        elif 'ImageMode' in key:
+            return ChannelEnum(value=0, enum_strings=['Single', 'Multiple', 'Continuous'])
+        elif 'WriteMode' in key:
+            return ChannelEnum(value=0, enum_strings=['Single', 'Capture', 'Stream'])
+        elif 'ArraySize' in key:
+            return ChannelData(value=10)
+        elif 'TriggerMode' in key:
+            return ChannelEnum(value=0, enum_strings=['Internal', 'External'])
+        elif 'FileWriteMode' in key:
+            return ChannelEnum(value=0, enum_strings=['Single'])
+        elif 'FilePathExists' in key:
+            return ChannelData(value=1)
+        elif 'WaitForPlugins' in key:
+            return ChannelEnum(value=0, enum_strings=['No', 'Yes'])
+        elif ('file' in key.lower() and 'number' not in key.lower() and
+            'mode' not in key.lower()):
+            return ChannelChar(value='a' * 250)
+        elif ('filenumber' in key.lower()):
+            return ChannelInteger(value=0)
+        elif 'Compression' in key:
+            return ChannelEnum(value=0, enum_strings=['None', 'N-bit', 'szip', 'zlib', 'blosc'])
         return ChannelDouble(value=0.0)
 
 
@@ -124,15 +171,15 @@ def run_ioc():
     # Create an event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
+
     try:
         # Start the IOC and properly await startup
         loop.run_until_complete(ioc.startup())
-        
+
         # Start the device poller (now synchronous)
         ioc.linkam.start_poller()
         print("[run_ioc] IOC startup complete, running main loop...")
-        
+
         # Run the IOC with the initialized pvdb
         run(ioc.pvdb, **run_options)
     except KeyboardInterrupt:
@@ -148,10 +195,14 @@ def main():
 This script spawns an EPICS IOC which responds to ALL caget, caput, camonitor
 requests. As this is effectively a PV black hole, it may affect the
 performance and functionality of other IOCs on your network.
+
+The script ignores the --interfaces command line argument, always
+binding only to 127.0.0.1, superseding the usual default (0.0.0.0) and any
+user-provided value.
 *** WARNING ***
 
 Starting IOC...''')
-    
+
     run_ioc()
 
 if __name__ == '__main__':
