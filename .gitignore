@@ -137,3 +137,5 @@ doc/source/_generated_images/*
 
 *.swn
 
+.aider*
+.env
