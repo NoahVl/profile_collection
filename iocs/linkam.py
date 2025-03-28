@@ -17,7 +17,7 @@ class LinkamIOC(PVGroup):
     
     # Temperature control
     temperature_setpoint = pvproperty(value=25.0, name="SETPOINT:SET", doc="Temperature setpoint")
-    temperature_current = pvproperty(value=25.0, name="TEMP", doc="Current temperature", read_only=True)
+    temperature_current = pvproperty(value=25.0, name="TEMP", doc="Current temperature")
 
     temperature_rate = pvproperty(value=10.0, name="RAMPRATE:SET", doc="Temperature ramp rate")
     
@@ -112,6 +112,17 @@ class LinkamIOC(PVGroup):
         """Handle new ramp rate"""
         self._ramp_rate = float(value)
         print(f"[LinkamIOC] Temperature rate putter called: new ramp rate set to {self._ramp_rate}")
+        return value
+
+    @temperature_current.putter
+    async def temperature_current(self, instance, value):
+        """Handle direct temperature setting. 
+        WARNING: This putter should only be used for debugging/testing purposes.
+        In normal operation, the temperature should be controlled via setpoint and 
+        heater settings, allowing the simulator to adjust temperature according to 
+        ramp rate."""
+        self._current_temp = float(value)
+        print(f"[LinkamIOC] Temperature directly set to {self._current_temp} (DEBUG/TEST MODE)")
         return value
 
     async def shutdown(self):
