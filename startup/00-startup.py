@@ -207,6 +207,8 @@ except ImportError:
 # # PersistentDict will create the directory if it does not exist
 # metadata = PersistentDict(runengine_metadata_dir)
 RE.md = RedisJSONDict(redis.Redis("info.cms.nsls2.bnl.gov"), prefix="")
+print("Redis JSON:", RE.md)
+print("*" * 100)
 # RE.md.update(metadata)
 
 # print("a new version of bsui")
