@@ -13,4 +13,6 @@ sam = Sample("test")
 
 detselect(pilatus2M)
 
+RE.md.update({'scan_id': 1})
+
 pilatus2M.cam.num_images.put(1)
